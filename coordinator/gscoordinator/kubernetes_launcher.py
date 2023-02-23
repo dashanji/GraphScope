@@ -26,6 +26,7 @@ import shlex
 import subprocess
 import sys
 import time
+import vineyard
 
 from gscoordinator.cluster_builder import EngineCluster
 from gscoordinator.cluster_builder import MarsCluster
@@ -67,6 +68,10 @@ from gscoordinator.version import __version__
 
 logger = logging.getLogger("graphscope")
 
+class FakeKubeResponse:
+    def __init__(self, obj):
+        import json
+        self.data = json.dumps(obj)
 
 class KubernetesClusterLauncher(AbstractLauncher):
     def __init__(
@@ -95,7 +100,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
         service_type=None,
         timeout_seconds=None,
         vineyard_cpu=None,
-        vineyard_daemonset=None,
+        vineyard_deployment_name=None,
         vineyard_image=None,
         vineyard_mem=None,
         vineyard_shared_mem=None,
@@ -130,15 +135,18 @@ class KubernetesClusterLauncher(AbstractLauncher):
 
         self._num_workers = num_workers
 
-        self._vineyard_daemonset = vineyard_daemonset
-        if vineyard_daemonset is not None:
+        self._vineyard_deployment_name = vineyard_deployment_name
+
+        if vineyard_deployment_name is not None:
             try:
-                self._apps_api.read_namespaced_daemon_set(
-                    vineyard_daemonset, self._namespace
+                self._apps_api.read_namespaced_deployment(
+                    vineyard_deployment_name, self._namespace
                 )
             except K8SApiException:
-                logger.error(f"Vineyard daemonset {vineyard_daemonset} not found")
-                self._vineyard_daemonset = None
+                logger.exception(
+                    f"Vineyard deployment {self._namespace}/{vineyard_deployment_name} not found"
+                )
+                self._vineyard_deployment_name = None
 
         self._engine_cpu = engine_cpu
         self._engine_mem = engine_mem
@@ -228,7 +236,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
             preemptive=preemptive,
             service_type=service_type,
             vineyard_cpu=vineyard_cpu,
-            vineyard_daemonset=vineyard_daemonset,
+            vineyard_deployment_name=vineyard_deployment_name,
             vineyard_image=vineyard_image,
             vineyard_mem=vineyard_mem,
             vineyard_shared_mem=vineyard_shared_mem,
@@ -427,9 +435,20 @@ class KubernetesClusterLauncher(AbstractLauncher):
         self._resource_object.append(response)
         logger.info("Creating engine pods...")
         stateful_set = self._engine_cluster.get_engine_stateful_set()
-        stateful_set.metadata.owner_references = self._owner_references
+        stateful_set_json = json.dumps(self._api_client.sanitize_for_serialization(stateful_set))
+        
+        new_stateful_set_json = vineyard.deploy.operator.schedule_workload_on_vineyardd_cluster(
+            workload=stateful_set_json,
+            vineyard_name=self._vineyard_deployment_name,
+            vineyard_namespace=self._namespace,
+        )
+
+        fake_kube_response = FakeKubeResponse(new_stateful_set_json)
+        new_stateful_set = self._api_client.deserialize(fake_kube_response,'V1StatefulSet')
+
+        new_stateful_set.metadata.owner_references = self._owner_references
         response = self._apps_api.create_namespaced_stateful_set(
-            self._namespace, stateful_set
+            self._namespace, new_stateful_set
         )
         self._resource_object.append(response)
 
@@ -483,7 +502,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
         if self._with_mars:
             # scheduler used by Mars
             self._create_mars_scheduler()
-        if self._vineyard_daemonset is None:
+        if self._vineyard_deployment_name is None:
             self._create_vineyard_service()
 
     def _waiting_for_services_ready(self):

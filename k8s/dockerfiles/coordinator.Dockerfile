@@ -53,6 +53,8 @@ RUN sudo mkdir -p /var/log/graphscope \
 RUN curl -L -o /usr/local/bin/kubectl https://storage.googleapis.com/kubernetes-release/release/v1.19.2/bin/linux/amd64/kubectl
 RUN chmod +x /usr/local/bin/kubectl
 
+# TODO: caoye: use pip install vineyard after the next release
+COPY --from=builder /home/graphscope/GraphScope/vineyard-0.12.2-cp38-cp38-manylinux_2_12_x86_64.manylinux2010_x86_64.whl /opt/graphscope/
 COPY --from=builder /home/graphscope/install /opt/graphscope/
 RUN python3 -m pip install --no-cache-dir /opt/graphscope/*.whl && rm -rf /opt/graphscope/
 COPY --from=builder /opt/openmpi /opt/openmpi

@@ -66,7 +66,7 @@ class EngineCluster:
         preemptive,
         service_type,
         vineyard_cpu,
-        vineyard_daemonset,
+        vineyard_deployment_name,
         vineyard_image,
         vineyard_mem,
         vineyard_shared_mem,
@@ -122,7 +122,7 @@ class EngineCluster:
         self._image_pull_policy = image_pull_policy
         self._image_pull_secrets = image_pull_secrets
 
-        self._vineyard_daemonset = vineyard_daemonset
+        self._vineyard_deployment_name = vineyard_deployment_name
 
         self._with_analytical = with_analytical
         self._with_analytical_java = with_analytical_java
@@ -203,11 +203,11 @@ class EngineCluster:
     def get_vineyard_socket_volume(self):
         name = "vineyard-ipc-socket"
         volume = kube_client.V1Volume(name=name)
-        if self._vineyard_daemonset is None:
+        if self._vineyard_deployment_name is None:
             empty_dir = kube_client.V1EmptyDirVolumeSource()
             volume.empty_dir = empty_dir
         else:
-            path = f"/var/run/vineyard-{self._namespace}-{self._vineyard_daemonset}"
+            path = f"/var/run/vineyard-kubernetes/{self._namespace}/{self._vineyard_deployment_name}"
             host_path = kube_client.V1HostPathVolumeSource(path=path)
             host_path.type = "Directory"
             volume.host_path = host_path
@@ -405,12 +405,13 @@ class EngineCluster:
                 self.get_learning_container(volume_mounts=engine_volume_mounts)
             )
 
-        if self._vineyard_daemonset is None:
+        if self._vineyard_deployment_name is None:
             containers.append(
                 self.get_vineyard_container(
                     volume_mounts=[socket_volume[1], shm_volume[1]]
                 )
             )
+
         if self._with_dataset:
             dataset_volume = self.get_dataset_volume()
             volumes.append(dataset_volume[0])
@@ -510,8 +511,11 @@ class EngineCluster:
 
     def get_vineyard_service_endpoint(self, api_client):
         # return f"{self.vineyard_service_name}:{self._vineyard_service_port}"
-        service_type = self._service_type
         service_name = self.vineyard_service_name
+        service_type = self._service_type
+        if self._vineyard_deployment_name is not None:
+            service_name=self._vineyard_deployment_name + "-rpc"
+            service_type = "ClusterIP"
         endpoints = get_service_endpoints(
             api_client=api_client,
             namespace=self._namespace,

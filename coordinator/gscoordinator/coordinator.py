@@ -671,6 +671,12 @@ def parse_sys_args():
         help="Service type, choose from 'NodePort' or 'LoadBalancer'.",
     )
     parser.add_argument(
+        "--vineyard_deployment_name",
+        type=str,
+        default=None,
+        help="The name of vineyard deployment, it should exist as expected.",
+    )
+    parser.add_argument(
         "--k8s_coordinator_name",
         type=str,
         default="",
@@ -693,12 +699,6 @@ def parse_sys_args():
         type=str,
         default="",
         help="A list of comma separated secrets to pull image.",
-    )
-    parser.add_argument(
-        "--k8s_vineyard_daemonset",
-        type=str,
-        default=None,
-        help="Use the existing vineyard DaemonSet with name 'k8s_vineyard_daemonset'.",
     )
     parser.add_argument(
         "--k8s_vineyard_cpu",
@@ -890,7 +890,7 @@ def get_launcher(args):
             service_type=args.k8s_service_type,
             timeout_seconds=args.timeout_seconds,
             vineyard_cpu=args.k8s_vineyard_cpu,
-            vineyard_daemonset=args.k8s_vineyard_daemonset,
+            vineyard_deployment_name=args.vineyard_deployment_name,
             vineyard_image=args.k8s_vineyard_image,
             vineyard_mem=args.k8s_vineyard_mem,
             vineyard_shared_mem=args.vineyard_shared_mem,
