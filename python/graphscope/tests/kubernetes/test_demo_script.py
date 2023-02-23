@@ -83,7 +83,7 @@ def gs_session():
 def gs_session_distributed():
     sess = graphscope.session(
         num_workers=2,
-        k8s_namespace="vineyard-system",
+        #k8s_namespace="vineyard-system",
         k8s_image_registry=get_gs_registry_on_ci_env(),
         k8s_image_tag=get_gs_tag_on_ci_env(),
         k8s_coordinator_cpu=2,
@@ -93,7 +93,7 @@ def gs_session_distributed():
         k8s_engine_cpu=2,
         k8s_engine_mem="4Gi",
         vineyard_shared_mem="4Gi",
-        vineyard_deployment_name="vineyardd-sample",
+        #vineyard_deployment_name="vineyardd-sample",
         k8s_volumes=get_k8s_volumes(),
     )
     yield sess
