@@ -100,7 +100,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
         service_type=None,
         timeout_seconds=None,
         vineyard_cpu=None,
-        vineyard_deployment_name=None,
+        k8s_vineyard_deployment=None,
         vineyard_image=None,
         vineyard_mem=None,
         vineyard_shared_mem=None,
@@ -135,18 +135,18 @@ class KubernetesClusterLauncher(AbstractLauncher):
 
         self._num_workers = num_workers
 
-        self._vineyard_deployment_name = vineyard_deployment_name
+        self._k8s_vineyard_deployment = k8s_vineyard_deployment
 
-        if vineyard_deployment_name is not None:
+        if k8s_vineyard_deployment is not None:
             try:
                 self._apps_api.read_namespaced_deployment(
-                    vineyard_deployment_name, self._namespace
+                    k8s_vineyard_deployment, self._namespace
                 )
             except K8SApiException:
                 logger.exception(
-                    f"Vineyard deployment {self._namespace}/{vineyard_deployment_name} not found"
+                    f"Vineyard deployment {self._namespace}/{k8s_vineyard_deployment} not found"
                 )
-                self._vineyard_deployment_name = None
+                self._k8s_vineyard_deployment = None
 
         self._engine_cpu = engine_cpu
         self._engine_mem = engine_mem
@@ -236,7 +236,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
             preemptive=preemptive,
             service_type=service_type,
             vineyard_cpu=vineyard_cpu,
-            vineyard_deployment_name=vineyard_deployment_name,
+            k8s_vineyard_deployment=k8s_vineyard_deployment,
             vineyard_image=vineyard_image,
             vineyard_mem=vineyard_mem,
             vineyard_shared_mem=vineyard_shared_mem,
@@ -436,10 +436,11 @@ class KubernetesClusterLauncher(AbstractLauncher):
         logger.info("Creating engine pods...")
         stateful_set = self._engine_cluster.get_engine_stateful_set()
         stateful_set_json = json.dumps(self._api_client.sanitize_for_serialization(stateful_set))
-        
-        new_stateful_set_json = vineyard.deploy.operator.schedule_workload_on_vineyardd_cluster(
+        print('stateful_set_json is:',stateful_set_json,flush=True)
+
+        new_stateful_set_json = vineyard.deploy.vineyardctl.schedule.workload(
             workload=stateful_set_json,
-            vineyard_name=self._vineyard_deployment_name,
+            vineyard_name=self._k8s_vineyard_deployment,
             vineyard_namespace=self._namespace,
         )
 
@@ -502,7 +503,7 @@ class KubernetesClusterLauncher(AbstractLauncher):
         if self._with_mars:
             # scheduler used by Mars
             self._create_mars_scheduler()
-        if self._vineyard_deployment_name is None:
+        if self._k8s_vineyard_deployment is None:
             self._create_vineyard_service()
 
     def _waiting_for_services_ready(self):

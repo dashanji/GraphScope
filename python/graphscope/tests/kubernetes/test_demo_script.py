@@ -24,6 +24,8 @@ import tempfile
 
 import numpy as np
 import pytest
+from kubernetes import client, config
+import vineyard
 
 import graphscope
 from graphscope import Graph
@@ -83,7 +85,6 @@ def gs_session():
 def gs_session_distributed():
     sess = graphscope.session(
         num_workers=2,
-        #k8s_namespace="vineyard-system",
         k8s_image_registry=get_gs_registry_on_ci_env(),
         k8s_image_tag=get_gs_tag_on_ci_env(),
         k8s_coordinator_cpu=2,
@@ -93,12 +94,30 @@ def gs_session_distributed():
         k8s_engine_cpu=2,
         k8s_engine_mem="4Gi",
         vineyard_shared_mem="4Gi",
-        #vineyard_deployment_name="vineyardd-sample",
         k8s_volumes=get_k8s_volumes(),
     )
     yield sess
     sess.close()
 
+@pytest.fixture
+def gs_session_distributed_with_vineyard_deployment():
+    sess = graphscope.session(
+        num_workers=2,
+        k8s_namespace="graphscope-system",
+        k8s_image_registry=get_gs_registry_on_ci_env(),
+        k8s_image_tag=get_gs_tag_on_ci_env(),
+        k8s_coordinator_cpu=2,
+        k8s_coordinator_mem="4Gi",
+        k8s_vineyard_cpu=2,
+        k8s_vineyard_mem="1Gi",
+        k8s_engine_cpu=2,
+        k8s_engine_mem="4Gi",
+        vineyard_shared_mem="4Gi",
+        k8s_vineyard_deployment="vineyardd-sample",
+        k8s_volumes=get_k8s_volumes(),
+    )
+    yield sess
+    sess.close()
 
 @pytest.fixture
 def data_dir():
@@ -171,6 +190,32 @@ def test_demo_on_hdfs(gs_session_distributed):
         port=9000,
     )
 
+def test_demo_distribute_with_vineyard_deployment(gs_session_distributed_with_vineyard_deployment, data_dir, modern_graph_data_dir):
+    # load kubeconfig
+    config.load_kube_config()
+
+    # create a Kubernetes API client
+    v1 = client.CoreV1Api()
+
+    # define namespace name
+    namespace_name = "graphscope-system"
+
+    # create namespace object
+    namespace = client.V1Namespace()
+    namespace.metadata = dict(name=namespace_name)
+
+    # create namespace
+    try:
+        api_response = v1.create_namespace(namespace)
+        print(f"Namespace {api_response.metadata.name} created successfully.")
+    except ApiException as e:
+        print("Exception when creating namespace: %s" % e)
+    
+    # create vineyard deployment
+    # set the replicas of vineyard and etcd to 1 as there is only one node in the cluster
+    vineyard.deploy.vineyardctl.deploy.vineyard_deployment(vineyard_replicas=1,vineyard_etcd_replicas=1,namespace='graphscope-system')
+
+    test_demo_distribute(gs_session_distributed_with_vineyard_deployment, data_dir, modern_graph_data_dir)
 
 def test_demo_distribute(gs_session_distributed, data_dir, modern_graph_data_dir):
     graph = load_ldbc(gs_session_distributed, data_dir)
@@ -219,6 +264,7 @@ def test_demo_distribute(gs_session_distributed, data_dir, modern_graph_data_dir
     assert person_count == sub_person_count
 
     # GNN engine
+
 
 
 def test_multiple_session():

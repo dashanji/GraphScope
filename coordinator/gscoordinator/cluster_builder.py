@@ -66,7 +66,7 @@ class EngineCluster:
         preemptive,
         service_type,
         vineyard_cpu,
-        vineyard_deployment_name,
+        k8s_vineyard_deployment,
         vineyard_image,
         vineyard_mem,
         vineyard_shared_mem,
@@ -122,7 +122,7 @@ class EngineCluster:
         self._image_pull_policy = image_pull_policy
         self._image_pull_secrets = image_pull_secrets
 
-        self._vineyard_deployment_name = vineyard_deployment_name
+        self._k8s_vineyard_deployment = k8s_vineyard_deployment
 
         self._with_analytical = with_analytical
         self._with_analytical_java = with_analytical_java
@@ -203,11 +203,11 @@ class EngineCluster:
     def get_vineyard_socket_volume(self):
         name = "vineyard-ipc-socket"
         volume = kube_client.V1Volume(name=name)
-        if self._vineyard_deployment_name is None:
+        if self._k8s_vineyard_deployment is None:
             empty_dir = kube_client.V1EmptyDirVolumeSource()
             volume.empty_dir = empty_dir
         else:
-            path = f"/var/run/vineyard-kubernetes/{self._namespace}/{self._vineyard_deployment_name}"
+            path = f"/var/run/vineyard-kubernetes/{self._namespace}/{self._k8s_vineyard_deployment}"
             host_path = kube_client.V1HostPathVolumeSource(path=path)
             host_path.type = "Directory"
             volume.host_path = host_path
@@ -405,7 +405,7 @@ class EngineCluster:
                 self.get_learning_container(volume_mounts=engine_volume_mounts)
             )
 
-        if self._vineyard_deployment_name is None:
+        if self._k8s_vineyard_deployment is None:
             containers.append(
                 self.get_vineyard_container(
                     volume_mounts=[socket_volume[1], shm_volume[1]]
@@ -513,8 +513,8 @@ class EngineCluster:
         # return f"{self.vineyard_service_name}:{self._vineyard_service_port}"
         service_name = self.vineyard_service_name
         service_type = self._service_type
-        if self._vineyard_deployment_name is not None:
-            service_name=self._vineyard_deployment_name + "-rpc"
+        if self._k8s_vineyard_deployment is not None:
+            service_name=self._k8s_vineyard_deployment + "-rpc"
             service_type = "ClusterIP"
         endpoints = get_service_endpoints(
             api_client=api_client,

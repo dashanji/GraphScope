@@ -301,7 +301,7 @@ class Session(object):
         etcd_listening_client_port=gs_config.etcd_listening_client_port,
         etcd_listening_peer_port=gs_config.etcd_listening_peer_port,
         k8s_vineyard_image=gs_config.k8s_vineyard_image,
-        vineyard_deployment_name=gs_config.vineyard_deployment_name,
+        k8s_vineyard_deployment=gs_config.k8s_vineyard_deployment,
         k8s_vineyard_cpu=gs_config.k8s_vineyard_cpu,
         k8s_vineyard_mem=gs_config.k8s_vineyard_mem,
         vineyard_shared_mem=gs_config.vineyard_shared_mem,
@@ -373,7 +373,7 @@ class Session(object):
 
             k8s_vineyard_image (str, optional): The image of vineyard.
 
-            vineyard_deployment_name (str, optional): The name of vineyard deployment to use. GraphScope will try to
+            k8s_vineyard_deployment (str, optional): The name of vineyard deployment to use. GraphScope will try to
                 discovery the deployment from kubernetes cluster, then use it if exists, and fallback to launching
                 a bundled vineyard container otherwise.
             
@@ -544,7 +544,7 @@ class Session(object):
             "etcd_listening_client_port",
             "etcd_listening_peer_port",
             "k8s_vineyard_image",
-            "vineyard_deployment_name",
+            "k8s_vineyard_deployment",
             "k8s_vineyard_cpu",
             "k8s_vineyard_mem",
             "vineyard_shared_mem",
@@ -1315,7 +1315,7 @@ def set_option(**kwargs):
         - k8s_image_pull_secrets
         - k8s_coordinator_cpu
         - k8s_coordinator_mem
-        - vineyard_deployment_name
+        - k8s_vineyard_deployment
         - k8s_vineyard_cpu
         - k8s_vineyard_mem
         - k8s_engine_cpu
@@ -1370,7 +1370,7 @@ def get_option(key):
         - k8s_image_pull_secrets
         - k8s_coordinator_cpu
         - k8s_coordinator_mem
-        - vineyard_deployment_name
+        - k8s_vineyard_deployment
         - k8s_vineyard_cpu
         - k8s_vineyard_mem
         - k8s_engine_cpu

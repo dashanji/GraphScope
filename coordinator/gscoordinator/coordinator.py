@@ -671,7 +671,7 @@ def parse_sys_args():
         help="Service type, choose from 'NodePort' or 'LoadBalancer'.",
     )
     parser.add_argument(
-        "--vineyard_deployment_name",
+        "--k8s_vineyard_deployment",
         type=str,
         default=None,
         help="The name of vineyard deployment, it should exist as expected.",
@@ -890,7 +890,7 @@ def get_launcher(args):
             service_type=args.k8s_service_type,
             timeout_seconds=args.timeout_seconds,
             vineyard_cpu=args.k8s_vineyard_cpu,
-            vineyard_deployment_name=args.vineyard_deployment_name,
+            k8s_vineyard_deployment=args.k8s_vineyard_deployment,
             vineyard_image=args.k8s_vineyard_image,
             vineyard_mem=args.k8s_vineyard_mem,
             vineyard_shared_mem=args.vineyard_shared_mem,

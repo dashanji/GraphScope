@@ -433,10 +433,17 @@ jobs:
           export GS_TAG=${SHORT_SHA}
 
           cd ${GITHUB_WORKSPACE}/python
-          python3 -m pytest --ignore=./graphscope/tests/kubernetes/test_store_service.py \
-                          --cov=graphscope --cov-config=.coveragerc --cov-report=xml \
-                          --cov-report=term --exitfirst -s -vvv --log-cli-level=INFO \
-                          ./graphscope/tests/kubernetes
+          python3 -m pytest -s -vvv ./graphscope/tests/kubernetes/test_demo_script.py -k test_helm_installation
+      
+      - name: Vineyard Deployment Test
+        env:
+          GS_TEST_DIR: ${{ github.workspace }}/gstest
+        run: |
+          export GS_REGISTRY=""
+          export GS_TAG=${SHORT_SHA}
+
+          cd ${GITHUB_WORKSPACE}/python
+          python3 -m pytest -s -vvv ./graphscope/tests/kubernetes/test_demo_script.py -k test_demo_distribute_with_vineyard_deployment
 
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3

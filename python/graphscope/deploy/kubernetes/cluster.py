@@ -75,7 +75,7 @@ class KubernetesClusterLauncher(Launcher):
         k8s_image_pull_policy=None,
         k8s_image_pull_secrets=None,
         k8s_vineyard_image=None,
-        vineyard_deployment_name=None,
+        k8s_vineyard_deployment=None,
         k8s_vineyard_cpu=None,
         k8s_vineyard_mem=None,
         vineyard_shared_mem=None,
@@ -419,11 +419,11 @@ class KubernetesClusterLauncher(Launcher):
                     f"{self.base64_encode(json.dumps(volumes))}",
                 ]
             )
-        if self._saved_locals["vineyard_deployment_name"] is not None:
+        if self._saved_locals["k8s_vineyard_deployment"] is not None:
             args.extend(
                 [
-                    "--vineyard_deployment_name",
-                    str(self._saved_locals["vineyard_deployment_name"]),
+                    "--k8s_vineyard_deployment",
+                    str(self._saved_locals["k8s_vineyard_deployment"]),
                 ]
             )
 
