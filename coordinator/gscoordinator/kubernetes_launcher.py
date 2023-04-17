@@ -152,6 +152,10 @@ class KubernetesClusterLauncher(AbstractLauncher):
         self._engine_mem = engine_mem
         self._vineyard_shared_mem = vineyard_shared_mem
 
+        self._vineyard_cpu = vineyard_cpu
+        self._vineyard_mem = vineyard_mem
+        self._vineyard_image = vineyard_image
+
         self._with_dataset = with_dataset
         self._preemptive = preemptive
         self._service_type = service_type
@@ -432,6 +436,56 @@ class KubernetesClusterLauncher(AbstractLauncher):
         )
         self._resource_object.append(response)
 
+    # the function is used to inject vineyard as a sidecar container into the workload
+    # and return the new workload
+    def _inject_vineyard_as_sidecar(self, workload):
+        import vineyard
+
+        # add vineyard sidecar annotations to the workload
+        annotations = workload.spec.template.metadata.annotations
+        if annotations is None:
+            annotations = {}
+        annotations['sidecar.v6d.io/name'] = 'default'
+        workload.spec.template.metadata.annotations = annotations
+
+        # add vineyard sidecar labels to the workload
+        labels = workload.spec.template.metadata.labels
+        if labels is None:
+            labels = {}
+        labels['sidecar.v6d.io/enabled'] = "true"
+        workload.spec.template.metadata.labels = labels
+
+        workload_json = json.dumps(
+            self._api_client.sanitize_for_serialization(workload)
+        )
+
+        sts_name = self._engine_cluster.engine_stateful_set_name
+        svc_name = sts_name + "-headless"
+        pod0_dns = f"{sts_name}-0.{svc_name}"
+        etcd_endpoint = "http://" + pod0_dns + "." + self._namespace + ".svc.cluster.local" +":2379"
+        new_workload_json = vineyard.deploy.vineyardctl.inject(
+            resource=workload_json,
+            sidecar_volume_mountpath='/tmp/vineyard_workspace',
+            name=sts_name + '-vineyard-sidecar',
+            use_internal_etcd=True,
+            etcd_service_name=pod0_dns,
+            sidecar_etcdendpoint=etcd_endpoint,
+            sidecar_image=self._vineyard_image,
+            sidecar_size=self._vineyard_shared_mem,
+            sidecar_cpu=self._vineyard_cpu,
+            sidecar_memory=self._vineyard_mem,
+            deploy_rpc_service=False,
+            deploy_etcd_service=False,
+            output='json',
+            capture=True,
+        )
+
+        normalized_workload_json = json.loads(new_workload_json)
+        fake_kube_response = FakeKubeResponse(normalized_workload_json)
+
+        new_workload = self._api_client.deserialize(fake_kube_response, type(workload))
+        return new_workload
+
     def _create_engine_stateful_set(self):
         logger.info("Create engine headless services...")
         service = self._engine_cluster.get_engine_headless_service()
@@ -447,11 +501,13 @@ class KubernetesClusterLauncher(AbstractLauncher):
                 workload=stateful_set
             )
 
-        stateful_set.metadata.owner_references = self._owner_references
+        new_stateful_set = self._inject_vineyard_as_sidecar(stateful_set)
+        new_stateful_set.metadata.owner_references = self._owner_references
         response = self._apps_api.create_namespaced_stateful_set(
-            self._namespace, stateful_set
+            self._namespace, new_stateful_set
         )
         self._resource_object.append(response)
+
 
     def _create_frontend_deployment(self):
         logger.info("Creating frontend pods...")

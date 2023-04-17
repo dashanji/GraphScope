@@ -395,12 +395,10 @@ class EngineCluster:
     def get_engine_pod_spec(self):
         containers = []
         volumes = []
-
-        socket_volume = self.get_vineyard_socket_volume()
+        
         shm_volume = self.get_shm_volume()
-        volumes.extend([socket_volume[0], shm_volume[0]])
-
-        engine_volume_mounts = [socket_volume[2], shm_volume[2]]
+        volumes=[shm_volume[0]]
+        engine_volume_mounts = [shm_volume[2]]
 
         if self._volumes and self._volumes is not None:
             udf_volumes = ResourceBuilder.get_user_defined_volumes(self._volumes)
@@ -426,13 +424,6 @@ class EngineCluster:
         if self._with_learning:
             containers.append(
                 self.get_learning_container(volume_mounts=engine_volume_mounts)
-            )
-
-        if self._vineyard_deployment is None:
-            containers.append(
-                self.get_vineyard_container(
-                    volume_mounts=[socket_volume[1], shm_volume[1]]
-                )
             )
 
         if self._with_dataset:
@@ -481,6 +472,7 @@ class EngineCluster:
         service_spec = ResourceBuilder.get_service_spec(
             "ClusterIP", ports, self._engine_labels, None
         )
+
         # Necessary, create a headless service for statefulset
         service_spec.cluster_ip = "None"
         service = ResourceBuilder.get_service(
