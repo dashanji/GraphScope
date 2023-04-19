@@ -437,7 +437,10 @@ class KubernetesClusterLauncher(AbstractLauncher):
         self._resource_object.append(response)
 
     # the function is used to inject vineyard as a sidecar container into the workload
-    # and return the new workload
+    # 1. add the annotations and labels to the workload for enabling the injection
+    # 2. get the ownerReference of the coordinator
+    # 3. apply the etcd cluster for vineyard sidecar
+    # 4. return the json string of new workload which is injected with vineyard sidecar
     def _inject_vineyard_as_sidecar(self, workload):
         import vineyard
 
@@ -445,14 +448,14 @@ class KubernetesClusterLauncher(AbstractLauncher):
         annotations = workload.spec.template.metadata.annotations
         if annotations is None:
             annotations = {}
-        annotations['sidecar.v6d.io/name'] = 'default'
+        annotations["sidecar.v6d.io/name"] = "default"
         workload.spec.template.metadata.annotations = annotations
 
         # add vineyard sidecar labels to the workload
         labels = workload.spec.template.metadata.labels
         if labels is None:
             labels = {}
-        labels['sidecar.v6d.io/enabled'] = "true"
+        labels["sidecar.v6d.io/enabled"] = "true"
         workload.spec.template.metadata.labels = labels
 
         workload_json = json.dumps(
@@ -460,28 +463,42 @@ class KubernetesClusterLauncher(AbstractLauncher):
         )
 
         sts_name = self._engine_cluster.engine_stateful_set_name
-        svc_name = sts_name + "-headless"
-        pod0_dns = f"{sts_name}-0.{svc_name}"
-        etcd_endpoint = "http://" + pod0_dns + "." + self._namespace + ".svc.cluster.local" +":2379"
+        owner_reference = [
+            {
+                "apiVersion": self._owner_references[0].api_version,
+                "kind": self._owner_references[0].kind,
+                "name": self._owner_references[0].name,
+                "uid": self._owner_references[0].uid,
+            }
+        ]
+
+        owner_reference_json = json.dumps(owner_reference)
+        # inject vineyard sidecar into the workload
+        #
+        # the name is used to specify the name of the sidecar container, which is also the
+        # labelSelector of the rpc service and the etcd service.
+        #
+        # the apply_resources is used to specify the resources that will be applied to the cluster
+        # so during the injection, the external etcd cluster(etcdPod, etcdInternalService, etcdService)
+        # and the vineyard rpc service will be applied to the cluster
         new_workload_json = vineyard.deploy.vineyardctl.inject(
             resource=workload_json,
-            sidecar_volume_mountpath='/tmp/vineyard_workspace',
-            name=sts_name + '-vineyard-sidecar',
-            use_internal_etcd=True,
-            etcd_service_name=pod0_dns,
-            sidecar_etcdendpoint=etcd_endpoint,
+            sidecar_volume_mountpath="/tmp/vineyard_workspace",
+            name=sts_name + "-vineyard-sidecar",
+            apply_resources="rpc_service,etcd_service,etcd_internal_service,etcd_pod",
+            owner_references=owner_reference_json,
             sidecar_image=self._vineyard_image,
             sidecar_size=self._vineyard_shared_mem,
             sidecar_cpu=self._vineyard_cpu,
             sidecar_memory=self._vineyard_mem,
-            deploy_rpc_service=False,
-            deploy_etcd_service=False,
-            output='json',
+            output="json",
             capture=True,
         )
 
         normalized_workload_json = json.loads(new_workload_json)
-        fake_kube_response = FakeKubeResponse(normalized_workload_json)
+        final_workload_json = json.loads(normalized_workload_json["workload"])
+
+        fake_kube_response = FakeKubeResponse(final_workload_json)
 
         new_workload = self._api_client.deserialize(fake_kube_response, type(workload))
         return new_workload
@@ -502,12 +519,10 @@ class KubernetesClusterLauncher(AbstractLauncher):
             )
 
         new_stateful_set = self._inject_vineyard_as_sidecar(stateful_set)
-        new_stateful_set.metadata.owner_references = self._owner_references
         response = self._apps_api.create_namespaced_stateful_set(
             self._namespace, new_stateful_set
         )
         self._resource_object.append(response)
-
 
     def _create_frontend_deployment(self):
         logger.info("Creating frontend pods...")
@@ -559,8 +574,6 @@ class KubernetesClusterLauncher(AbstractLauncher):
         if self._with_mars:
             # scheduler used by Mars
             self._create_mars_scheduler()
-        if self._vineyard_deployment is None:
-            self._create_vineyard_service()
 
     def _waiting_for_services_ready(self):
         logger.info("Waiting for services ready...")

@@ -337,40 +337,6 @@ class EngineCluster:
         ]
         return container
 
-    def get_vineyard_container(self, volume_mounts):
-        name = self.vineyard_container_name
-        image = self._vineyard_image
-        sts_name = self.engine_stateful_set_name
-        svc_name = sts_name + "-headless"
-        pod0_dns = f"{sts_name}-0.{svc_name}.{self._namespace}.svc.cluster.local"
-        vineyard_cmd = (
-            f"vineyardd -size {self._vineyard_shared_mem} -socket {self._sock}"
-        )
-        args = f"""
-            [[ `hostname` =~ -([0-9]+)$ ]] || exit 1;
-            ordinal=${{BASH_REMATCH[1]}};
-            if (( $ordinal == 0 )); then
-                {vineyard_cmd} -etcd_endpoint http://0.0.0.0:{self._etcd_port}
-            else
-                until nslookup {pod0_dns}; do sleep 1; done;
-                {vineyard_cmd} -etcd_endpoint http://{pod0_dns}:{self._etcd_port}
-            fi;
-            """
-        args = ["bash", "-c", args]
-        container = self.get_engine_container_helper(
-            name,
-            image,
-            args,
-            volume_mounts,
-            self._vineyard_requests,
-            self._vineyard_requests,
-        )
-        container.ports = [
-            kube_client.V1ContainerPort(container_port=self._vineyard_service_port),
-            kube_client.V1ContainerPort(container_port=self._etcd_port),
-        ]
-        return container
-
     def get_mars_container(self):
         _ = self.mars_container_name
         return
@@ -395,9 +361,9 @@ class EngineCluster:
     def get_engine_pod_spec(self):
         containers = []
         volumes = []
-        
+
         shm_volume = self.get_shm_volume()
-        volumes=[shm_volume[0]]
+        volumes = [shm_volume[0]]
         engine_volume_mounts = [shm_volume[2]]
 
         if self._volumes and self._volumes is not None:
@@ -522,7 +488,7 @@ class EngineCluster:
 
     @property
     def vineyard_service_name(self):
-        return f"{self._vineyard_prefix}{self._instance_id}"
+        return self.engine_stateful_set_name + "-vineyard-sidecar-rpc"
 
     def get_vineyard_service_endpoint(self, api_client):
         # return f"{self.vineyard_service_name}:{self._vineyard_service_port}"
