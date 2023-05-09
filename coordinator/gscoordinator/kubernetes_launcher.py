@@ -436,27 +436,149 @@ class KubernetesClusterLauncher(AbstractLauncher):
         )
         self._resource_object.append(response)
 
-    # the function is used to inject vineyard as a sidecar container into the workload
-    # 1. add the annotations and labels to the workload for enabling the injection
-    # 2. get the ownerReference of the coordinator
-    # 3. apply the etcd cluster for vineyard sidecar
-    # 4. return the json string of new workload which is injected with vineyard sidecar
+    # The function is used to inject vineyard as a sidecar container into the workload
+    # and return the json string of new workload which is injected with vineyard sidecar
+    #
+    # Assume we have a workload json as below:
+    #
+    # {
+    #  "apiVersion": "apps/v1",
+    #  "kind": "Deployment",
+    #  "metadata": {
+    #    "name": "nginx-deployment",
+    #    "namespace": "vineyard-job"
+    #  },
+    #  "spec": {
+    #    "selector": {
+    #      "matchLabels": {
+    #        "app": "nginx"
+    #      }
+    #    },
+    #    "template": {
+    #      "metadata": {
+    #        "labels": {
+    #          "app": "nginx"
+    #        }
+    #      },
+    #      "spec": {
+    #        "containers": [
+    #          {
+    #            "name": "nginx",
+    #            "image": "nginx:1.14.2",
+    #            "ports": [
+    #              {
+    #                "containerPort": 80
+    #              }
+    #            ]
+    #          }
+    #        ]
+    #      }
+    #    }
+    #  }
+    # }
+    #
+    # The function will return a new workload json as below:
+    #
+    # {
+    #  "apiVersion": "apps/v1",
+    #  "kind": "Deployment",
+    #  "metadata": {
+    #    "creationTimestamp": null,
+    #    "name": "nginx-deployment",
+    #    "namespace": "vineyard-job"
+    #  },
+    #  "spec": {
+    #    "selector": {
+    #      "matchLabels": {
+    #        "app": "nginx"
+    #      }
+    #    }
+    #  },
+    #  "template": {
+    #    "metadata": null,
+    #    "labels": {
+    #      "app": "nginx",
+    #      "app.vineyard.io/name": "vineyard-sidecar"
+    #    },
+    #    "spec": {
+    #      "containers": [
+    #        {
+    #          "command": null,
+    #          "image": "nginx:1.14.2",
+    #          "name": "nginx",
+    #          "ports": [
+    #            {
+    #              "containerPort": 80
+    #            }
+    #          ],
+    #          "volumeMounts": [
+    #            {
+    #              "mountPath": "/var/run",
+    #              "name": "vineyard-socket"
+    #            }
+    #          ]
+    #        },
+    #        {
+    #          "command": [
+    #            "/bin/bash",
+    #            "-c",
+    #            "/usr/bin/wait-for-it.sh -t 60 vineyard-sidecar-etcd-service.vineyard-job.svc.cluster.local:2379; \\\n
+    #             sleep 1; /usr/local/bin/vineyardd --sync_crds true --socket /var/run/vineyard.sock --size 256Mi \\\n
+    #             --stream_threshold 80 --etcd_cmd etcd --etcd_prefix /vineyard \\\n
+    #             --etcd_endpoint http://vineyard-sidecar-etcd-service:2379\n"
+    #          ],
+    #          "env": [
+    #            {
+    #              "name": "VINEYARDD_UID",
+    #              "value": null
+    #            },
+    #            {
+    #              "name": "VINEYARDD_NAME",
+    #              "value": "vineyard-sidecar"
+    #            },
+    #            {
+    #              "name": "VINEYARDD_NAMESPACE",
+    #              "value": "vineyard-job"
+    #            }
+    #          ],
+    #          "image": "vineyardcloudnative/vineyardd:latest",
+    #          "imagePullPolicy": "IfNotPresent",
+    #          "name": "vineyard-sidecar",
+    #          "ports": [
+    #            {
+    #              "containerPort": 9600,
+    #              "name": "vineyard-rpc",
+    #              "protocol": "TCP"
+    #            }
+    #          ],
+    #          "volumeMounts": [
+    #            {
+    #              "mountPath": "/var/run",
+    #              "name": "vineyard-socket"
+    #            }
+    #          ]
+    #        }
+    #      ],
+    #      "volumes": [
+    #        {
+    #          "emptyDir": {},
+    #          "name": "vineyard-socket"
+    #        }
+    #      ]
+    #    }
+    #  }
+    # }
+
     def _inject_vineyard_as_sidecar(self, workload):
         import vineyard
 
-        # add vineyard sidecar annotations to the workload
-        annotations = workload.spec.template.metadata.annotations
-        if annotations is None:
-            annotations = {}
-        annotations["sidecar.v6d.io/name"] = "default"
-        workload.spec.template.metadata.annotations = annotations
+        # create the annotations for the workload's template if not exists
+        if workload.spec.template.metadata.annotations is None:
+            workload.spec.template.metadata.annotations = {}
 
-        # add vineyard sidecar labels to the workload
-        labels = workload.spec.template.metadata.labels
-        if labels is None:
-            labels = {}
-        labels["sidecar.v6d.io/enabled"] = "true"
-        workload.spec.template.metadata.labels = labels
+        # create the labels for the workload's template if not exists
+        if workload.spec.template.metadata.labels is None:
+            workload.spec.template.metadata.labels = {}
 
         workload_json = json.dumps(
             self._api_client.sanitize_for_serialization(workload)
@@ -478,14 +600,17 @@ class KubernetesClusterLauncher(AbstractLauncher):
         # the name is used to specify the name of the sidecar container, which is also the
         # labelSelector of the rpc service and the etcd service.
         #
-        # the apply_resources is used to specify the resources that will be applied to the cluster
-        # so during the injection, the external etcd cluster(etcdPod, etcdInternalService, etcdService)
-        # and the vineyard rpc service will be applied to the cluster
+        # the apply_resources is used to apply resources to the kubernetes cluster during
+        # the injection.
+        #
+        # for more details about vineyardctl inject, please refer to the link below:
+        # https://github.com/v6d-io/v6d/tree/main/k8s/cmd#vineyardctl-inject
+
         new_workload_json = vineyard.deploy.vineyardctl.inject(
             resource=workload_json,
             sidecar_volume_mountpath="/tmp/vineyard_workspace",
             name=sts_name + "-vineyard-sidecar",
-            apply_resources="rpc_service,etcd_service,etcd_internal_service,etcd_pod",
+            apply_resources=True,
             owner_references=owner_reference_json,
             sidecar_image=self._vineyard_image,
             sidecar_size=self._vineyard_shared_mem,
